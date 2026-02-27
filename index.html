@@ -328,7 +328,19 @@ input[type=range] { width:100%; accent-color:var(--accent); cursor:pointer; }
 .autopsy-highlight { color:var(--red); font-weight:500; }
 .autopsy-good { color:var(--green); font-weight:500; }
 
-/* ─── SPLIT MODAL ─── */
+/* ─── RECURRING GROUP CARD ─── */
+.rec-group { background:var(--surface); border:1px solid var(--border); border-radius:2px; overflow:hidden; margin-bottom:2px; }
+.rec-group-header { display:grid; grid-template-columns:36px 1fr auto; gap:0.65rem; align-items:center; padding:0.85rem 1.1rem; cursor:pointer; transition:background 0.12s; }
+.rec-group-header:hover { background:var(--surface2); }
+.rec-group-badge { display:inline-flex; align-items:center; gap:0.3rem; font-family:'DM Mono',monospace; font-size:0.6rem; background:rgba(107,159,212,0.12); border:1px solid rgba(107,159,212,0.25); color:var(--blue); padding:0.15rem 0.5rem; border-radius:2px; text-transform:uppercase; letter-spacing:0.06em; }
+.rec-group-chevron { font-size:0.7rem; color:var(--text-dim); transition:transform 0.2s; }
+.rec-group-header.open .rec-group-chevron { transform:rotate(180deg); }
+.rec-group-entries { display:none; border-top:1px solid var(--border); }
+.rec-group-entries.open { display:block; }
+.rec-group-entry { display:grid; grid-template-columns:36px 1fr auto; gap:0.65rem; align-items:center; padding:0.65rem 1.1rem; border-bottom:1px solid var(--border); background:var(--surface2); transition:background 0.1s; }
+.rec-group-entry:last-child { border-bottom:none; }
+.rec-group-entry:hover { background:var(--surface3); }
+
 .split-row { display:flex; gap:0.5rem; align-items:center; margin-bottom:0.5rem; }
 .split-row .form-select { flex:1; }
 .split-row .form-input { width:110px; }
@@ -365,6 +377,7 @@ input[type=range] { width:100%; accent-color:var(--accent); cursor:pointer; }
   <div class="tab" onclick="switchTab('networth',this)">Net Worth</div>
   <div class="tab" onclick="switchTab('whatif',this)">What If</div>
   <div class="tab" onclick="switchTab('shared',this)">Shared</div>
+  <div class="tab" onclick="switchTab('statement',this)">Statement</div>
 </div>
 
 <!-- ══════════════ DASHBOARD TAB ══════════════ -->
@@ -384,10 +397,13 @@ input[type=range] { width:100%; accent-color:var(--accent); cursor:pointer; }
           <span class="month-label" id="monthLabel">—</span>
           <button onclick="changeMonth(1)">&#8250;</button>
         </div>
-        <div class="filter-btns">
-          <button class="filter-btn active" onclick="setFilter('all',this)">All</button>
-          <button class="filter-btn" onclick="setFilter('expense',this)">Expenses</button>
-          <button class="filter-btn" onclick="setFilter('income',this)">Income</button>
+        <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+          <div class="filter-btns">
+            <button class="filter-btn active" onclick="setFilter('all',this)">All</button>
+            <button class="filter-btn" onclick="setFilter('expense',this)">Expenses</button>
+            <button class="filter-btn" onclick="setFilter('income',this)">Income</button>
+          </div>
+          <button class="filter-btn" id="dashGroupBtn" onclick="toggleGroupRecurring('dash')" title="Group recurring transactions">⟳ Group</button>
         </div>
       </div>
       <div id="txListDash" class="tx-list"><div class="empty-state"><div class="ei">⬡</div>No transactions yet.</div></div>
@@ -477,6 +493,7 @@ input[type=range] { width:100%; accent-color:var(--accent); cursor:pointer; }
       <option value="amount-desc">Amount ↓</option>
       <option value="amount-asc">Amount ↑</option>
     </select>
+    <button class="filter-btn" id="allGroupBtn" onclick="toggleGroupRecurring('all')" title="Group recurring transactions">⟳ Group</button>
   </div>
   <div id="txListAll" class="tx-list"><div class="empty-state"><div class="ei">⬡</div>No transactions found.</div></div>
 </div>
@@ -628,6 +645,46 @@ input[type=range] { width:100%; accent-color:var(--accent); cursor:pointer; }
         <button class="submit-btn" onclick="logSettlement()">Log Settlement</button>
       </div>
     </div>
+  </div>
+</div>
+</div>
+
+<!-- ══════════════ STATEMENT TAB ══════════════ -->
+<div id="tab-statement" class="tab-pane">
+<div class="main">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem;flex-wrap:wrap;gap:1rem;">
+    <div>
+      <div style="font-family:'Playfair Display',serif;font-size:1.5rem;color:var(--text)">Monthly Statement</div>
+      <div style="font-family:'DM Mono',monospace;font-size:0.65rem;color:var(--text-dim);margin-top:0.25rem">Budget vs actual spending — navigate any month</div>
+    </div>
+    <div class="month-nav">
+      <button onclick="stmtChangeMonth(-1)">&#8249;</button>
+      <span class="month-label" id="stmtMonthLabel">—</span>
+      <button onclick="stmtChangeMonth(1)">&#8250;</button>
+    </div>
+  </div>
+
+  <!-- KPI summary row -->
+  <div id="stmtKpis" style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.75rem;margin-bottom:1.5rem;"></div>
+
+  <!-- Budget vs Actual table -->
+  <div class="panel" style="margin-bottom:1.25rem;">
+    <div class="panel-header">
+      <div class="panel-title">Budget vs Actual</div>
+      <div id="stmtBudgetNote" style="font-family:'DM Mono',monospace;font-size:0.62rem;color:var(--text-dim)"></div>
+    </div>
+    <div class="panel-body" style="padding:0;">
+      <table id="stmtTable" style="width:100%;border-collapse:collapse;font-size:0.82rem;"></table>
+    </div>
+  </div>
+
+  <!-- All transactions this month -->
+  <div class="panel">
+    <div class="panel-header">
+      <div class="panel-title">Transactions This Month</div>
+      <div id="stmtTxCount" style="font-family:'DM Mono',monospace;font-size:0.62rem;color:var(--text-dim)"></div>
+    </div>
+    <div class="panel-body" id="stmtTxList" style="padding:0;max-height:400px;overflow-y:auto;"></div>
   </div>
 </div>
 </div>
@@ -869,6 +926,7 @@ function init() {
   buildThemeSwatches();
   setType('expense');
   processRecurring();
+  stmtDate = new Date(viewDate.getFullYear(), viewDate.getMonth(), 1);
   render();
   updateSheetPreview();
   document.getElementById('ex-period').addEventListener('change', function() {
@@ -1095,6 +1153,113 @@ function buildTxHtml(tx) {
   </div>`;
 }
 
+let groupRecurringDash = false;
+let groupRecurringAll  = false;
+
+function toggleGroupRecurring(which) {
+  if (which==='dash') {
+    groupRecurringDash = !groupRecurringDash;
+    const btn = document.getElementById('dashGroupBtn');
+    btn.classList.toggle('active', groupRecurringDash);
+    renderDashTx();
+  } else {
+    groupRecurringAll = !groupRecurringAll;
+    const btn = document.getElementById('allGroupBtn');
+    btn.classList.toggle('active', groupRecurringAll);
+    renderAllTx();
+  }
+}
+
+function buildRecurringGroupHtml(key, txList) {
+  const first = txList[0];
+  const cat = CATS[first.category] || CATS.other;
+  const sign = first.type === 'income' ? '+' : '−';
+  const total = txList.reduce((s,t) => s + t.amount, 0);
+  const count = txList.length;
+  const uid = 'rg_' + key.replace(/[^a-z0-9]/gi,'_');
+  const perEntry = txList.map((t,i) => `
+    <div class="rec-group-entry">
+      <div style="font-size:0.7rem;font-family:'DM Mono',monospace;color:var(--text-dim);text-align:center">${i+1}</div>
+      <div>
+        <div style="font-size:0.82rem;color:var(--text-muted)">${formatDateLabel(t.date)}</div>
+        <div style="font-family:'DM Mono',monospace;font-size:0.58rem;color:var(--text-dim)">${t.date}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:0.5rem">
+        <div style="font-family:'DM Mono',monospace;font-size:0.82rem;color:${first.type==='income'?'var(--green)':'var(--red)'}">${sign}${fmt(t.amount)}</div>
+        <button class="tx-act-btn del" onclick="deleteTransaction(${t.id});event.stopPropagation()" title="Delete">✕</button>
+      </div>
+    </div>`).join('');
+
+  return `<div class="rec-group">
+    <div class="rec-group-header" id="${uid}-hdr" onclick="toggleRecGroup('${uid}')">
+      <div class="tx-icon" style="background:${cat.color}18">${cat.icon}</div>
+      <div>
+        <div style="font-size:0.88rem;color:var(--text);margin-bottom:0.2rem">${esc(first.desc)}</div>
+        <div style="display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap">
+          <span style="color:${cat.color};text-transform:uppercase;font-size:0.58rem">${cat.label}</span>
+          <span class="rec-group-badge">⟳ ${first.recurring} · ${count} ${count===1?'entry':'entries'}</span>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:0.25rem">
+        <div style="font-family:'DM Mono',monospace;font-size:0.95rem;font-weight:500;color:${first.type==='income'?'var(--green)':'var(--red)'}">${sign}${fmt(total)}</div>
+        <div style="font-family:'DM Mono',monospace;font-size:0.6rem;color:var(--text-dim)">${fmt(total/count)} avg</div>
+        <span class="rec-group-chevron">▼</span>
+      </div>
+    </div>
+    <div class="rec-group-entries" id="${uid}-entries">${perEntry}</div>
+  </div>`;
+}
+
+function toggleRecGroup(uid) {
+  const hdr = document.getElementById(uid+'-hdr');
+  const entries = document.getElementById(uid+'-entries');
+  hdr.classList.toggle('open');
+  entries.classList.toggle('open');
+}
+
+function renderGroupedWithRecurring(list, container) {
+  if (!list.length) { container.innerHTML=`<div class="empty-state"><div class="ei">⬡</div>No transactions here.</div>`; return; }
+
+  // Separate recurring from non-recurring
+  const recurring = list.filter(t => t.recurring);
+  const normal    = list.filter(t => !t.recurring);
+
+  // Group recurring by desc+category+type+frequency
+  const recGroups = {};
+  recurring.forEach(t => {
+    const key = `${t.desc}||${t.category}||${t.type}||${t.recurring}`;
+    if (!recGroups[key]) recGroups[key] = [];
+    recGroups[key].push(t);
+  });
+
+  // Build recurring cards (sorted by total desc)
+  const recHtml = Object.entries(recGroups)
+    .sort((a,b) => b[1].reduce((s,t)=>s+t.amount,0) - a[1].reduce((s,t)=>s+t.amount,0))
+    .map(([key, txs]) => buildRecurringGroupHtml(key, txs.sort((a,b)=>b.date.localeCompare(a.date))))
+    .join('');
+
+  // Build normal grouped-by-date html
+  let normalHtml = '';
+  if (normal.length) {
+    const groups = {};
+    normal.forEach(t => { if (!groups[t.date]) groups[t.date]=[]; groups[t.date].push(t); });
+    const sorted = Object.keys(groups).sort((a,b) => b.localeCompare(a));
+    normalHtml = sorted.map(date => `
+      <div class="date-sep">${formatDateLabel(date)}</div>
+      ${groups[date].map(buildTxHtml).join('')}`).join('');
+  }
+
+  // Recurring section header only if both exist
+  const recSection = recHtml ? `
+    <div class="date-sep" style="color:var(--blue)">⟳ Recurring (grouped)</div>
+    ${recHtml}` : '';
+  const normalSection = normalHtml ? `
+    <div class="date-sep" style="${recHtml?'':'display:none'}">One-time</div>
+    ${normalHtml}` : '';
+
+  container.innerHTML = recSection + normalSection;
+}
+
 function renderGrouped(list, container) {
   if (!list.length) { container.innerHTML=`<div class="empty-state"><div class="ei">⬡</div>No transactions here.</div>`; return; }
   const groups={};
@@ -1109,7 +1274,9 @@ function renderDashTx() {
   let list=getMonthTxs();
   if (currentFilter!=='all') list=list.filter(t=>t.type===currentFilter);
   list.sort((a,b)=>b.date.localeCompare(a.date));
-  renderGrouped(list, document.getElementById('txListDash'));
+  const container = document.getElementById('txListDash');
+  if (groupRecurringDash) renderGroupedWithRecurring(list, container);
+  else renderGrouped(list, container);
 }
 
 function renderAllTx() {
@@ -1124,7 +1291,9 @@ function renderAllTx() {
   else if (sort==='date-asc') list.sort((a,b)=>a.date.localeCompare(b.date));
   else if (sort==='amount-desc') list.sort((a,b)=>b.amount-a.amount);
   else list.sort((a,b)=>a.amount-b.amount);
-  renderGrouped(list, document.getElementById('txListAll'));
+  const container = document.getElementById('txListAll');
+  if (groupRecurringAll) renderGroupedWithRecurring(list, container);
+  else renderGrouped(list, container);
 }
 
 function renderBudgetMini(monthTxs) {
@@ -1132,18 +1301,31 @@ function renderBudgetMini(monthTxs) {
   if (!entries.length) { document.getElementById('budgetMini').innerHTML=`<div style="color:var(--text-dim);font-family:'DM Mono',monospace;font-size:0.72rem">No budgets set. Click Edit to add budgets.</div>`; return; }
   const catTotals={};
   monthTxs.filter(t=>t.type==='expense').forEach(t=>catTotals[t.category]=(catTotals[t.category]||0)+t.amount);
-  document.getElementById('budgetMini').innerHTML=entries.map(([cat,limit])=>{
+  const totalBudgeted=entries.reduce((s,[,v])=>s+v,0);
+  const totalSpent=entries.reduce((s,[cat])=>s+(catTotals[cat]||0),0);
+  const totalLeft=totalBudgeted-totalSpent;
+  const summaryColor=totalLeft<0?'var(--red)':totalLeft<totalBudgeted*0.1?'var(--orange)':'var(--green)';
+  document.getElementById('budgetMini').innerHTML=`
+    <div style="background:var(--surface3);border:1px solid var(--border);border-radius:2px;padding:0.75rem 1rem;margin-bottom:1rem;display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.5rem;text-align:center">
+      <div><div style="font-family:'DM Mono',monospace;font-size:0.55rem;letter-spacing:0.12em;text-transform:uppercase;color:var(--text-dim);margin-bottom:0.25rem">Budgeted</div><div style="font-family:'DM Mono',monospace;font-size:0.82rem;color:var(--text-muted)">${fmt(totalBudgeted)}</div></div>
+      <div><div style="font-family:'DM Mono',monospace;font-size:0.55rem;letter-spacing:0.12em;text-transform:uppercase;color:var(--text-dim);margin-bottom:0.25rem">Spent</div><div style="font-family:'DM Mono',monospace;font-size:0.82rem;color:var(--red)">${fmt(totalSpent)}</div></div>
+      <div><div style="font-family:'DM Mono',monospace;font-size:0.55rem;letter-spacing:0.12em;text-transform:uppercase;color:var(--text-dim);margin-bottom:0.25rem">Left</div><div style="font-family:'DM Mono',monospace;font-size:0.82rem;color:${summaryColor}">${totalLeft<0?'-':''}${fmt(Math.abs(totalLeft))}</div></div>
+    </div>
+  `+entries.map(([cat,limit])=>{
     const spent=catTotals[cat]||0;
+    const left=limit-spent;
     const pct=Math.min(spent/limit*100,100);
     const over=spent>limit;
     const near=!over&&pct>80;
     const info=CATS[cat]||CATS.other;
     const color=over?'var(--red)':near?'var(--orange)':'var(--green)';
-    const status=over?'⚠ Over':'✓ OK';
     return `<div class="budget-item">
       <div class="budget-row">
         <div class="budget-name">${info.icon} ${info.label}</div>
-        <div class="budget-vals" style="color:${color}">${fmt(spent)} / ${fmt(limit)}</div>
+        <div style="font-family:'DM Mono',monospace;font-size:0.65rem;text-align:right">
+          <div style="color:var(--text-dim)">${fmt(spent)} <span style="font-size:0.58rem">of ${fmt(limit)}</span></div>
+          <div style="color:${color};font-size:0.68rem;font-weight:500">${over?'⚠ '+fmt(Math.abs(left))+' over':fmt(left)+' left'}</div>
+        </div>
       </div>
       <div class="budget-track">
         <div class="budget-fill ${over?'over-budget':''}" style="width:${pct}%;background:${color}"></div>
@@ -1704,6 +1886,149 @@ function switchTab(name, el) {
   if (name==='networth') renderNetWorth();
   if (name==='whatif') { updateSim(); }
   if (name==='shared') renderShared();
+  if (name==='statement') renderStatement();
+}
+
+// ══════════════════════════════════════════════
+// STATEMENT
+// ══════════════════════════════════════════════
+let stmtDate = new Date();
+
+function stmtChangeMonth(dir) {
+  stmtDate = new Date(stmtDate.getFullYear(), stmtDate.getMonth() + dir, 1);
+  renderStatement();
+}
+
+function renderStatement() {
+  const y = stmtDate.getFullYear(), m = stmtDate.getMonth();
+  const monthLabel = new Date(y, m, 1).toLocaleDateString('en-US', {month:'long', year:'numeric'});
+  document.getElementById('stmtMonthLabel').textContent = monthLabel;
+
+  const monthTxs = transactions.filter(t => {
+    const d = new Date(t.date + 'T00:00:00');
+    return d.getFullYear() === y && d.getMonth() === m;
+  });
+
+  const income  = monthTxs.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount, 0);
+  const expense = monthTxs.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount, 0);
+  const net     = income - expense;
+  const budgetEntries = Object.entries(budgets);
+  const totalBudgeted = budgetEntries.reduce((s,[,v])=>s+v, 0);
+  const budgetLeft    = totalBudgeted - expense;
+
+  // KPI cards
+  document.getElementById('stmtKpis').innerHTML = [
+    {label:'Income',    val:fmt(income),                    color:'var(--green)', sub:monthTxs.filter(t=>t.type==='income').length+' entries'},
+    {label:'Expenses',  val:fmt(expense),                   color:'var(--red)',   sub:monthTxs.filter(t=>t.type==='expense').length+' entries'},
+    {label:'Net',       val:(net<0?'-':'')+fmt(Math.abs(net)), color:net>=0?'var(--accent-light)':'var(--red)', sub:net>=0?'surplus':'deficit'},
+    {label:'Budget Left', val:(budgetLeft<0?'-':'')+fmt(Math.abs(budgetLeft)), color:budgetLeft<0?'var(--red)':budgetLeft<totalBudgeted*0.1?'var(--orange)':'var(--green)', sub:totalBudgeted>0?'of '+fmt(totalBudgeted)+' budgeted':'no budgets set'},
+  ].map(k=>`
+    <div class="stat-card" style="padding:1rem 1.25rem;">
+      <div class="stat-label">${k.label}</div>
+      <div style="font-family:'Playfair Display',serif;font-size:1.5rem;font-weight:700;color:${k.color};line-height:1">${k.val}</div>
+      <div class="stat-sub">${k.sub}</div>
+    </div>`).join('');
+
+  // Budget vs Actual table
+  const catTotals = {};
+  monthTxs.filter(t=>t.type==='expense').forEach(t => catTotals[t.category] = (catTotals[t.category]||0) + t.amount);
+
+  const hasBudgets = budgetEntries.length > 0;
+  document.getElementById('stmtBudgetNote').textContent = hasBudgets ? budgetEntries.length + ' categories budgeted' : 'No budgets set — go to ⚙ Budgets to add them';
+
+  // Build rows: budgeted categories first, then any unbudgeted categories with spending
+  const allCats = new Set([
+    ...budgetEntries.map(([k])=>k),
+    ...Object.keys(catTotals)
+  ]);
+
+  const tableRows = [...allCats].map(cat => {
+    const info   = CATS[cat] || CATS.other;
+    const spent  = catTotals[cat] || 0;
+    const limit  = budgets[cat]   || 0;
+    const left   = limit - spent;
+    const pct    = limit > 0 ? Math.min(spent/limit*100, 100) : 0;
+    const over   = limit > 0 && spent > limit;
+    const color  = over ? 'var(--red)' : pct > 80 ? 'var(--orange)' : spent > 0 ? 'var(--green)' : 'var(--text-dim)';
+    return { info, spent, limit, left, pct, over, color, cat };
+  }).sort((a,b) => b.spent - a.spent);
+
+  const thStyle = `style="padding:0.75rem 1.25rem;font-family:'DM Mono',monospace;font-size:0.58rem;letter-spacing:0.15em;text-transform:uppercase;color:var(--text-dim);border-bottom:1px solid var(--border);text-align:left;"`;
+  const thRight = `style="padding:0.75rem 1.25rem;font-family:'DM Mono',monospace;font-size:0.58rem;letter-spacing:0.15em;text-transform:uppercase;color:var(--text-dim);border-bottom:1px solid var(--border);text-align:right;"`;
+
+  if (!tableRows.length) {
+    document.getElementById('stmtTable').innerHTML = `<tr><td colspan="5" style="padding:2rem;text-align:center;color:var(--text-dim);font-family:'DM Mono',monospace;font-size:0.75rem">No expense data for this month.</td></tr>`;
+  } else {
+    document.getElementById('stmtTable').innerHTML = `
+      <thead>
+        <tr>
+          <th ${thStyle}>Category</th>
+          <th ${thRight}>Budgeted</th>
+          <th ${thRight}>Spent</th>
+          <th ${thRight}>Remaining</th>
+          <th ${thStyle}>Usage</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${tableRows.map((r,i)=>{
+          const bg = i%2===0 ? '' : `background:var(--surface2)`;
+          const leftDisplay = r.limit > 0
+            ? (r.left < 0 ? `<span style="color:var(--red)">⚠ ${fmt(Math.abs(r.left))} over</span>` : `<span style="color:var(--green)">${fmt(r.left)}</span>`)
+            : `<span style="color:var(--text-dim)">—</span>`;
+          const barWidth = r.limit > 0 ? r.pct : (r.spent > 0 ? 100 : 0);
+          const barColor = r.over ? 'var(--red)' : r.pct > 80 ? 'var(--orange)' : 'var(--green)';
+          return `<tr style="${bg}">
+            <td style="padding:0.85rem 1.25rem;border-bottom:1px solid var(--border)">
+              <div style="display:flex;align-items:center;gap:0.5rem">
+                <span style="font-size:1rem">${r.info.icon}</span>
+                <span style="color:var(--text-muted)">${r.info.label}</span>
+                ${!r.limit ? `<span style="font-family:'DM Mono',monospace;font-size:0.55rem;color:var(--text-dim);background:var(--surface3);padding:0.1rem 0.35rem;border-radius:2px">no budget</span>` : ''}
+              </div>
+            </td>
+            <td style="padding:0.85rem 1.25rem;text-align:right;font-family:'DM Mono',monospace;font-size:0.82rem;color:var(--text-dim);border-bottom:1px solid var(--border)">${r.limit > 0 ? fmt(r.limit) : '—'}</td>
+            <td style="padding:0.85rem 1.25rem;text-align:right;font-family:'DM Mono',monospace;font-size:0.82rem;color:var(--red);border-bottom:1px solid var(--border)">${r.spent > 0 ? fmt(r.spent) : '—'}</td>
+            <td style="padding:0.85rem 1.25rem;text-align:right;font-family:'DM Mono',monospace;font-size:0.82rem;border-bottom:1px solid var(--border)">${leftDisplay}</td>
+            <td style="padding:0.85rem 1.25rem;border-bottom:1px solid var(--border);min-width:120px">
+              <div style="display:flex;align-items:center;gap:0.5rem">
+                <div style="flex:1;height:5px;background:var(--border);border-radius:2px;overflow:hidden">
+                  <div style="height:100%;width:${barWidth}%;background:${barColor};border-radius:2px;transition:width 0.4s"></div>
+                </div>
+                <span style="font-family:'DM Mono',monospace;font-size:0.6rem;color:var(--text-dim);min-width:28px">${r.limit>0?Math.round(r.pct)+'%':''}</span>
+              </div>
+            </td>
+          </tr>`;
+        }).join('')}
+        <tr style="background:var(--surface3)">
+          <td style="padding:0.85rem 1.25rem;font-family:'DM Mono',monospace;font-size:0.72rem;font-weight:500;color:var(--text-muted)">TOTAL</td>
+          <td style="padding:0.85rem 1.25rem;text-align:right;font-family:'DM Mono',monospace;font-size:0.82rem;color:var(--text-muted)">${totalBudgeted>0?fmt(totalBudgeted):'—'}</td>
+          <td style="padding:0.85rem 1.25rem;text-align:right;font-family:'DM Mono',monospace;font-size:0.82rem;color:var(--red)">${fmt(expense)}</td>
+          <td style="padding:0.85rem 1.25rem;text-align:right;font-family:'DM Mono',monospace;font-size:0.82rem;color:${budgetLeft>=0?'var(--green)':'var(--red)'}">${totalBudgeted>0?(budgetLeft<0?'⚠ '+fmt(Math.abs(budgetLeft))+' over':fmt(budgetLeft)+' left'):'—'}</td>
+          <td style="padding:0.85rem 1.25rem;"></td>
+        </tr>
+      </tbody>`;
+  }
+
+  // Transaction list for this month
+  document.getElementById('stmtTxCount').textContent = monthTxs.length + ' transactions';
+  const txEl = document.getElementById('stmtTxList');
+  if (!monthTxs.length) {
+    txEl.innerHTML = `<div style="padding:2rem;text-align:center;color:var(--text-dim);font-family:'DM Mono',monospace;font-size:0.75rem">No transactions this month.</div>`;
+    return;
+  }
+  const sorted = [...monthTxs].sort((a,b)=>b.date.localeCompare(a.date));
+  txEl.innerHTML = sorted.map((t,i)=>{
+    const cat = CATS[t.category]||CATS.other;
+    const sign = t.type==='income'?'+':'−';
+    const bg = i%2===0?'':'background:var(--surface2)';
+    return `<div style="${bg};padding:0.75rem 1.25rem;display:grid;grid-template-columns:28px 1fr auto;gap:0.65rem;align-items:center;border-bottom:1px solid var(--border)">
+      <div style="font-size:1.1rem">${cat.icon}</div>
+      <div>
+        <div style="font-size:0.85rem;color:var(--text)">${esc(t.desc)}</div>
+        <div style="font-family:'DM Mono',monospace;font-size:0.6rem;color:var(--text-dim);margin-top:0.1rem">${t.date} · <span style="color:${cat.color}">${cat.label}</span></div>
+      </div>
+      <div style="font-family:'DM Mono',monospace;font-size:0.88rem;font-weight:500;color:${t.type==='income'?'var(--green)':'var(--red)'}">${sign}${fmt(t.amount)}</div>
+    </div>`;
+  }).join('');
 }
 
 // ══════════════════════════════════════════════
