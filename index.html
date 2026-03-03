@@ -818,6 +818,9 @@ const ALL_TAGS = ['#personal','#work','#family','#urgent','#recurring','#planned
 
 let transactions  = JSON.parse(localStorage.getItem('lp_txs')        || '[]');
 let budgets       = JSON.parse(localStorage.getItem('lp_budgets')     || '{}');
+let budgetBase    = JSON.parse(localStorage.getItem('lp_budget_base') || '{}'); // original set limits
+let budgetRollover= JSON.parse(localStorage.getItem('lp_rollover')    || '{}'); // cat -> true/false
+let budgetLastRun = localStorage.getItem('lp_rollover_month') || '';            // "YYYY-MM" last processed
 let goals         = JSON.parse(localStorage.getItem('lp_goals')       || '[]');
 let nwItems       = JSON.parse(localStorage.getItem('lp_nw')          || '[]');
 let settlements   = JSON.parse(localStorage.getItem('lp_settlements') || '[]');
@@ -881,7 +884,64 @@ function processRecurring() {
 }
 
 // ══════════════════════════════════════════════
-// GUILT-FREE STREAK
+// BUDGET ROLLOVER
+// ══════════════════════════════════════════════
+function processRollover() {
+  const now = new Date();
+  const currentMonth = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0');
+  if (budgetLastRun === currentMonth) return; // already ran this month
+
+  // Need the previous month's transactions to calculate leftover
+  const prev = new Date(now.getFullYear(), now.getMonth()-1, 1);
+  const prevY = prev.getFullYear(), prevM = prev.getMonth();
+  const prevKey = prevY + '-' + String(prevM+1).padStart(2,'0');
+
+  // Only run if we have a previous month recorded (not first ever run)
+  if (budgetLastRun && budgetLastRun !== currentMonth) {
+    const prevTxs = transactions.filter(t => {
+      const d = new Date(t.date + 'T00:00:00');
+      return d.getFullYear()===prevY && d.getMonth()===prevM && t.type==='expense';
+    });
+
+    const catSpent = {};
+    prevTxs.forEach(t => catSpent[t.category] = (catSpent[t.category]||0) + t.amount);
+
+    let rolledOver = [];
+    Object.entries(budgetBase).forEach(([cat, base]) => {
+      if (!budgetRollover[cat]) return; // reset mode — skip
+      const spent = catSpent[cat] || 0;
+      const leftover = base - spent;
+      const newLimit = Math.max(base + leftover, base * 0.1); // can't go below 10% of base
+      budgets[cat] = Math.round(newLimit * 100) / 100;
+      if (leftover > 0) rolledOver.push(`${CATS[cat]?.label||cat}: +$${leftover.toFixed(2)}`);
+      else if (leftover < 0) rolledOver.push(`${CATS[cat]?.label||cat}: ${leftover.toFixed(2)}`);
+    });
+
+    // Reset categories stay at their base limit
+    Object.entries(budgetBase).forEach(([cat, base]) => {
+      if (budgetRollover[cat]) return;
+      budgets[cat] = base;
+    });
+
+    localStorage.setItem('lp_budgets', JSON.stringify(budgets));
+
+    if (rolledOver.length) {
+      setTimeout(() => showToast('🔄 Budget rolled over: ' + rolledOver.slice(0,2).join(', ') + (rolledOver.length>2?` +${rolledOver.length-2} more`:''), 'info'), 1000);
+    }
+  }
+
+  // Mark this month as processed
+  budgetLastRun = currentMonth;
+  localStorage.setItem('lp_rollover_month', currentMonth);
+
+  // First run — save current budgets as base
+  if (!Object.keys(budgetBase).length && Object.keys(budgets).length) {
+    budgetBase = { ...budgets };
+    localStorage.setItem('lp_budget_base', JSON.stringify(budgetBase));
+  }
+}
+
+
 // ══════════════════════════════════════════════
 function calcStreak() {
   const totalExp = transactions.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0);
@@ -926,6 +986,7 @@ function init() {
   buildThemeSwatches();
   setType('expense');
   processRecurring();
+  processRollover();
   stmtDate = new Date(viewDate.getFullYear(), viewDate.getMonth(), 1);
   render();
   updateSheetPreview();
@@ -970,20 +1031,65 @@ function toggleTag(el, tag) {
 
 function buildBudgetInputs() {
   document.getElementById('budgetInputs').innerHTML =
-    Object.entries(CATS).filter(([,v])=>v.type==='expense'||v.type==='both').map(([k,v])=>`
-      <div class="budget-input-item">
-        <span class="budget-cat-name">${v.icon} ${v.label}</span>
-        <input class="budget-input" type="number" id="bi-${k}" value="${budgets[k]||''}" placeholder="—" min="0">
-      </div>`).join('');
+    Object.entries(CATS).filter(([,v])=>v.type==='expense'||v.type==='both').map(([k,v])=>{
+      const isRollover = budgetRollover[k] || false;
+      return `
+      <div class="budget-input-item" style="flex-direction:column;gap:0.4rem;align-items:stretch;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;">
+          <span class="budget-cat-name">${v.icon} ${v.label}</span>
+          <input class="budget-input" type="number" id="bi-${k}" value="${budgetBase[k]||budgets[k]||''}" placeholder="—" min="0" style="width:110px;">
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:0.3rem 0.5rem;background:var(--surface3);border-radius:2px;border:1px solid var(--border);">
+          <span style="font-family:'DM Mono',monospace;font-size:0.6rem;color:var(--text-dim);">Month end:</span>
+          <div style="display:flex;gap:0.35rem;">
+            <button type="button" id="br-reset-${k}" onclick="setBudgetMode('${k}','reset')" 
+              class="rollover-btn ${!isRollover?'active':''}" style="font-family:'DM Mono',monospace;font-size:0.6rem;padding:0.2rem 0.55rem;border-radius:2px;border:1px solid var(--border);cursor:pointer;transition:all 0.15s;background:${!isRollover?'var(--surface)':'transparent'};color:${!isRollover?'var(--text)':'var(--text-dim)'};">
+              🔃 Reset
+            </button>
+            <button type="button" id="br-rollover-${k}" onclick="setBudgetMode('${k}','rollover')"
+              class="rollover-btn ${isRollover?'active':''}" style="font-family:'DM Mono',monospace;font-size:0.6rem;padding:0.2rem 0.55rem;border-radius:2px;border:1px solid var(--border);cursor:pointer;transition:all 0.15s;background:${isRollover?'var(--blue)':'transparent'};color:${isRollover?'#fff':'var(--text-dim)'};">
+              🔄 Rollover
+            </button>
+          </div>
+        </div>
+        ${isRollover && budgets[k] && budgetBase[k] && budgets[k]!==budgetBase[k] ? `
+          <div style="font-family:'DM Mono',monospace;font-size:0.6rem;color:var(--blue);padding:0 0.25rem;">
+            This month: ${fmt(budgets[k])} (base: ${fmt(budgetBase[k])})
+          </div>` : ''}
+      </div>`;
+    }).join('');
+}
+
+function setBudgetMode(cat, mode) {
+  budgetRollover[cat] = (mode === 'rollover');
+  localStorage.setItem('lp_rollover', JSON.stringify(budgetRollover));
+  // Update button styles immediately
+  const resetBtn = document.getElementById('br-reset-'+cat);
+  const rolloverBtn = document.getElementById('br-rollover-'+cat);
+  if (resetBtn && rolloverBtn) {
+    resetBtn.style.background = mode==='reset' ? 'var(--surface)' : 'transparent';
+    resetBtn.style.color = mode==='reset' ? 'var(--text)' : 'var(--text-dim)';
+    rolloverBtn.style.background = mode==='rollover' ? 'var(--blue)' : 'transparent';
+    rolloverBtn.style.color = mode==='rollover' ? '#fff' : 'var(--text-dim)';
+  }
 }
 
 function saveBudgets() {
   Object.entries(CATS).filter(([,v])=>v.type==='expense'||v.type==='both').forEach(([k])=>{
     const val = parseFloat(document.getElementById('bi-'+k).value);
-    if (val > 0) budgets[k] = val;
-    else delete budgets[k];
+    if (val > 0) {
+      budgetBase[k] = val; // always save the user-set amount as base
+      // For rollover categories, keep current month's adjusted value unless user changed the base
+      if (!budgetRollover[k] || !budgets[k]) budgets[k] = val;
+      else if (budgetBase[k] !== val) budgets[k] = val; // user updated base — reset to new value
+    } else {
+      delete budgets[k];
+      delete budgetBase[k];
+    }
   });
   localStorage.setItem('lp_budgets', JSON.stringify(budgets));
+  localStorage.setItem('lp_budget_base', JSON.stringify(budgetBase));
+  localStorage.setItem('lp_rollover', JSON.stringify(budgetRollover));
   closeBudgetModal();
   render();
   showToast('Budgets saved', 'success');
